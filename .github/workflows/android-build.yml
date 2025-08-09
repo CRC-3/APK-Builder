@@ -68,46 +68,35 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Generate Gradle wrapper if missing (8.6)
-        id: gradle
+      # Use portable Gradle 8.6 (matches AGP 8.4.x in the app ZIP)
+      - name: Install Gradle 8.6 (portable)
         shell: bash
         run: |
           set -e
-          ROOT="${{ steps.unzip.outputs.project_dir }}"
-          WRAPPER=$(find "$ROOT" -maxdepth 3 -name gradlew -type f | head -n 1 || true)
-          if [ -z "$WRAPPER" ]; then
-            echo "No gradlew found. Installing Gradle and generating wrapper..."
-            sudo apt-get update -y
-            sudo apt-get install -y gradle
-            (cd "$ROOT" && gradle wrapper --gradle-version 8.6 --distribution-type all)
-            WRAPPER=$(find "$ROOT" -maxdepth 3 -name gradlew -type f | head -n 1)
-          fi
-          chmod +x "$WRAPPER"
-          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "project_root=$(dirname "$WRAPPER")" >> "$GITHUB_OUTPUT"
+          GRADLE_VERSION=8.6
+          curl -L -o gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q gradle.zip
+          echo "$PWD/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
 
       - name: Show Java/Gradle versions
-        working-directory: ${{ steps.gradle.outputs.project_root }}
+        working-directory: ${{ steps.unzip.outputs.project_dir }}
         run: |
-          java -version || true
-          ./gradlew --version || true
+          java -version
+          gradle --version
 
-      - name: Enable Gradle cache
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Debug APK (verbose)
-        working-directory: ${{ steps.gradle.outputs.project_root }}
+      - name: Build Debug APK (verbose, no wrapper)
+        working-directory: ${{ steps.unzip.outputs.project_dir }}
         run: |
           set -e
           if [ -n "${{ github.event.inputs.module }}" ]; then
-            ./gradlew ${{ github.event.inputs.module }}:assembleDebug --stacktrace --info --no-daemon
+            gradle ${{ github.event.inputs.module }}:assembleDebug --stacktrace --info --no-daemon
           else
-            ./gradlew assembleDebug --stacktrace --info --no-daemon
+            gradle assembleDebug --stacktrace --info --no-daemon
           fi
 
       - name: Collect build outputs
         id: collect
-        working-directory: ${{ steps.gradle.outputs.project_root }}
+        working-directory: ${{ steps.unzip.outputs.project_dir }}
         shell: bash
         run: |
           set -e

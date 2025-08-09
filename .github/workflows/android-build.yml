@@ -68,7 +68,7 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Generate Gradle wrapper if missing (8.7)
+      - name: Generate Gradle wrapper if missing (8.6)
         id: gradle
         shell: bash
         run: |
@@ -79,7 +79,7 @@ jobs:
             echo "No gradlew found. Installing Gradle and generating wrapper..."
             sudo apt-get update -y
             sudo apt-get install -y gradle
-            (cd "$ROOT" && gradle wrapper --gradle-version 8.7 --distribution-type all)
+            (cd "$ROOT" && gradle wrapper --gradle-version 8.6 --distribution-type all)
             WRAPPER=$(find "$ROOT" -maxdepth 3 -name gradlew -type f | head -n 1)
           fi
           chmod +x "$WRAPPER"

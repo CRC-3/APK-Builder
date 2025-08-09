@@ -4,28 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       module:
-        description: 'Optional: Gradle module to assemble (e.g., app)'
+        description: "Optional Gradle module to assemble (e.g., app)"
         required: false
-        default: ''
+        default: ""
   push:
     branches: [ main, master ]
     paths:
-      - '**.zip'
-      - '**.gradle'
-      - 'gradlew*'
-      - 'app/**'
-      - '*/src/**'
+      - "**.zip"
+      - ".github/workflows/android-build.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Locate and extract app ZIP (if present)
+      - name: Find and extract app ZIP
         id: unzip
         shell: bash
         run: |
@@ -38,43 +35,21 @@ jobs:
             unzip -q "${zips[0]}" -d source
             entries=(source/*)
             if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
-              mv "${entries[0]}" src && rmdir source
+              mv "${entries[0]}" project && rmdir source
             else
-              mv source src
+              mv source project
             fi
-            echo "project_dir=src" >> "$GITHUB_OUTPUT"
+            echo "project_dir=project" >> "$GITHUB_OUTPUT"
           else
-            echo "No ZIP found; using repo contents as project."
+            echo "No ZIP found; using repo root."
             echo "project_dir=." >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Detect Gradle wrapper path
-        id: gradle
-        shell: bash
-        - name: Detect Gradle wrapper path
-        id: gradle
-        shell: bash
-        run: |
-          set -e
-          ROOT="${{ steps.unzip.outputs.project_dir }}"
-          WRAPPER=$(find "$ROOT" -name "gradlew" -type f | head -n 1 || true)
-          if [ -z "$WRAPPER" ]; then
-            echo "No gradlew found. Installing Gradle and generating wrapper (8.7)..."
-            sudo apt-get update -y
-            sudo apt-get install -y gradle
-            (cd "$ROOT" && gradle wrapper --gradle-version 8.7 --distribution-type all)
-            WRAPPER=$(find "$ROOT" -name "gradlew" -type f | head -n 1)
-          fi
-          chmod +x "$WRAPPER"
-          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "project_root=$(dirname "$WRAPPER")" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: temurin
+          java-version: "17"
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
@@ -82,10 +57,26 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses
 
-      - name: Enable Gradle build cache
+      - name: Generate Gradle wrapper if missing (8.7)
+        id: gradle
+        shell: bash
+        run: |
+          set -e
+          ROOT="${{ steps.unzip.outputs.project_dir }}"
+          WRAPPER=$(find "$ROOT" -maxdepth 2 -name gradlew -type f | head -n 1 || true)
+          if [ -z "$WRAPPER" ]; then
+            echo "No gradlew found. Installing Gradle and generating wrapper..."
+            sudo apt-get update -y
+            sudo apt-get install -y gradle
+            (cd "$ROOT" && gradle wrapper --gradle-version 8.7 --distribution-type all)
+            WRAPPER=$(find "$ROOT" -maxdepth 2 -name gradlew -type f | head -n 1)
+          fi
+          chmod +x "$WRAPPER"
+          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          echo "project_root=$(dirname "$WRAPPER")" >> "$GITHUB_OUTPUT"
+
+      - name: Enable Gradle cache
         uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
 
       - name: Build Debug APK
         working-directory: ${{ steps.gradle.outputs.project_root }}
@@ -103,11 +94,7 @@ jobs:
         run: |
           set -e
           mkdir -p "$GITHUB_WORKSPACE/artifacts" "$GITHUB_WORKSPACE/reports"
-          # Copy APKs and AABs
-          find . -type f \( -name "*.apk" -o -name "*.aab" \) -print0 | while IFS= read -r -d '' f; do
-            cp "$f" "$GITHUB_WORKSPACE/artifacts/"
-          done
-          # Copy build reports (if any)
+          find . -type f \( -name "*.apk" -o -name "*.aab" \) -print0 | xargs -0 -I{} cp "{}" "$GITHUB_WORKSPACE/artifacts/" || true
           find . -type d -path "*/build/reports" -exec cp -r {} "$GITHUB_WORKSPACE/reports/" \; || true
           count=$(ls -1 "$GITHUB_WORKSPACE/artifacts" 2>/dev/null | wc -l | xargs)
           echo "found=$count" >> "$GITHUB_OUTPUT"
